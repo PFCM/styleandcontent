@@ -1,3 +1,7 @@
+# OS things
+.DS_store
+.directory
+
 # pyenv version/venv files
 .python-version
 
