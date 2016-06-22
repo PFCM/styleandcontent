@@ -52,7 +52,7 @@ def get_ranks(num_params, decomp):
 
 for decomp, factor in itertools.product(decomps, param_denoms):
     print('~~~~~~~~~~~~')
-    rank, params = get_ranks(409600 / factor, decomp)
+    rank, params = get_ranks(2560000 / factor, decomp)
     print('{}-{}, rank {}'.format(decomp, params, rank))
     logdir = os.path.join(
         'logs/prelim', decomp, '{}_rank{}'.format(params, rank))
