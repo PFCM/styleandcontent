@@ -6,22 +6,22 @@ import math
 common_args = [
     'python',
     'train_bilinear.py',
-    '--learning_rate=0.001',
+    '--learning_rate=0.0005',
     '--batch_size=52',
-    '--style_embedding_dim=20',
-    '--content_embedding_dim=20'
+    '--style_embedding_dim=50',
+    '--content_embedding_dim=50'
 ]
 
 decomps = [
-#    'cp',
+    'cp',
     'tt'
 ]
 
-# the classic tensor would have 20 * 20 * 1024 = 409600 params
+# the classic tensor would have 50 * 50 * 1024 = 2560000 params
 # so we would like to investigate anywhere up to this
 
 param_denoms = [
-    1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 10, 15, 20, 30, 40, 50
+    1, 1.5, 2, 3, 5, 10, 15, 20, 30, 40, 50, 75, 100
 ]
 
 def get_ranks(num_params, decomp):
@@ -29,22 +29,22 @@ def get_ranks(num_params, decomp):
     # takes the ceiling
     # returns a single rank and the true number of params
     if decomp == 'cp':
-        # we will have two 20 x r matrices and one 1024 x r
-        # ie. p = 2 * 20r + 1024r
-        # so r = p / 1064
-        rank = int(math.ceil(num_params/1064))
-        params = rank * 1064
+        # we will have two 50 x r matrices and one 1024 x r
+        # ie. p = 2 * 50r + 1024r
+        # so r = p / 1124
+        rank = int(math.ceil(num_params/1124))
+        params = rank * 1124
         return rank, params
     if decomp == 'tt':
         # we assume r1 and r2 are the same
-        # so we will have two 20 * r matrices
+        # so we will have two 50 * r matrices
         # and an r x 1024 x r tensor
-        # ie. p = 2 * 20r + 1024r^2
-        # this guy has a root at the following point
-        rank = math.sqrt(5696) * math.sqrt(num_params) - 40
+        # ie. p = 2 * 50r + 1024r^2
+        # this guy has a root at the following point (for positive r)
+        rank = math.sqrt(10000 + 4096*num_params) - 100
         rank /= 2048
         rank = int(math.ceil(rank))
-        params = 40 * rank + 1024 * (rank**2)
+        params = 100 * rank + 1024 * (rank**2)
         return rank, params
     raise ValueError('I do not know {}'.format(decomp))
     
