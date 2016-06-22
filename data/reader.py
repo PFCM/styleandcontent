@@ -17,7 +17,7 @@ import tensorflow as tf
 IMAGE_SIZE = 32
 # need to keep track of these
 NUM_STYLE_LABELS = 10
-NUM_CONTENT_LABELS = len(string.ascii_uppercase)
+NUM_CONTENT_LABELS = len(string.ascii_letters)
 
 
 def get_images(directory, ids, chars):
@@ -54,8 +54,8 @@ def get_vocabs(dirs=None):
     """Gets the dictionaries mapping labels -> ints"""
     if not dirs:
         dirs = get_dirs
-
-    char_ids = {char: i for i, char in enumerate(string.ascii_uppercase)}
+    chars = [str(ord(c)) for c in string.ascii_letters]
+    char_ids = {char: i for i, char in enumerate(chars)}
     font_ids = {font: i for i, font in enumerate(sorted(dirs))}
     return char_ids, font_ids
 
@@ -66,6 +66,7 @@ def get_characters(chars=string.ascii_letters):
     Returns:
         data, charlabels, fontlabels, charids, fontids
     """
+    chars = [str(ord(c)) for c in chars]
     all_dirs = get_dirs()
     char_ids, font_ids = get_vocabs(all_dirs)
     all_data = []
@@ -97,7 +98,7 @@ class _path_to_labels(object):
         return np.array([style_ids, content_ids])
 
 
-def get_tf_images(batch_size, chars=string.ascii_uppercase,
+def get_tf_images(batch_size, chars=string.ascii_letters,
                   min_after_dequeue=100, num_epochs=None):
     """Probably the best move is still to just grab everything and then slice
     it (we aren't dealing with much data at all)."""
