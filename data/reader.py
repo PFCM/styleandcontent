@@ -17,7 +17,7 @@ import tensorflow as tf
 IMAGE_SIZE = 32
 # need to keep track of these
 NUM_STYLE_LABELS = 10
-NUM_CONTENT_LABELS = len(string.ascii_lowercase)
+NUM_CONTENT_LABELS = len(string.ascii_uppercase)
 
 
 def get_images(directory, ids, chars):
@@ -41,10 +41,12 @@ def get_images(directory, ids, chars):
 def get_dirs():
     """Returns a list of all of the folders with data in them"""
     outer_dir = os.path.dirname(__file__)
+    logging.info('looking for data in %s', outer_dir)
     all_dirs = [os.path.join(outer_dir, f)
                 for f in os.listdir(outer_dir)
                 if not os.path.isfile(os.path.join(outer_dir, f)) and
                 not f.startswith('_')]
+    logging.info('  found %d directories to check', len(all_dirs))
     return all_dirs
 
 
@@ -53,7 +55,7 @@ def get_vocabs(dirs=None):
     if not dirs:
         dirs = get_dirs
 
-    char_ids = {char: i for i, char in enumerate(string.ascii_letters)}
+    char_ids = {char: i for i, char in enumerate(string.ascii_uppercase)}
     font_ids = {font: i for i, font in enumerate(sorted(dirs))}
     return char_ids, font_ids
 
@@ -95,7 +97,7 @@ class _path_to_labels(object):
         return np.array([style_ids, content_ids])
 
 
-def get_tf_images(batch_size, chars=string.ascii_lowercase,
+def get_tf_images(batch_size, chars=string.ascii_uppercase,
                   min_after_dequeue=100, num_epochs=None):
     """Probably the best move is still to just grab everything and then slice
     it (we aren't dealing with much data at all)."""

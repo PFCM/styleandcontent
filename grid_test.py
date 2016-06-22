@@ -13,7 +13,7 @@ common_args = [
 ]
 
 decomps = [
-    'cp',
+#    'cp',
     'tt'
 ]
 
@@ -21,7 +21,7 @@ decomps = [
 # so we would like to investigate anywhere up to this
 
 param_denoms = [
-    1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50
+    1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 10, 15, 20, 30, 40, 50
 ]
 
 def get_ranks(num_params, decomp):
@@ -41,7 +41,7 @@ def get_ranks(num_params, decomp):
         # and an r x 1024 x r tensor
         # ie. p = 2 * 20r + 1024r^2
         # this guy has a root at the following point
-        rank = math.sqrt(5696) * math.sqrt(p) - 40
+        rank = math.sqrt(5696) * math.sqrt(num_params) - 40
         rank /= 2048
         rank = int(math.ceil(rank))
         params = 40 * rank + 1024 * (rank**2)
@@ -52,7 +52,7 @@ def get_ranks(num_params, decomp):
 
 for decomp, factor in itertools.product(decomps, param_denoms):
     print('~~~~~~~~~~~~')
-    rank, params = get_ranks(409600 // factor, decomp)
+    rank, params = get_ranks(409600 / factor, decomp)
     print('{}-{}, rank {}'.format(decomp, params, rank))
     logdir = os.path.join(
         'logs/prelim', decomp, '{}_rank{}'.format(params, rank))

@@ -22,6 +22,9 @@ def main():
     os.makedirs(output_folder, exist_ok=True)
     print('~~saving to {}'.format(output_folder))
     for char in string.ascii_letters:
+        # CASE SENSITIVITY BUG
+        # should come up with names that don't rely on cases
+        # and regenerate
         image = Image.new('RGB', (32, 32))
         draw = ImageDraw.Draw(image)
         w, h = font.getsize(char)
