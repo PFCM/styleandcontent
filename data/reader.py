@@ -6,11 +6,18 @@ from __future__ import print_function
 import os
 import string
 import itertools
+import logging
 
 import numpy as np
 from PIL import Image
 
 import tensorflow as tf
+
+
+IMAGE_SIZE = 32
+# need to keep track of these
+NUM_STYLE_LABELS = 10
+NUM_CONTENT_LABELS = len(string.ascii_lowercase)
 
 
 def get_images(directory, ids, chars):
@@ -69,6 +76,7 @@ def get_characters(chars=string.ascii_letters):
         all_data.append(data)
         all_charlabels += clabels
         all_fontlabels += [font_ids[font_dir]] * len(clabels)
+    NUM_STYLE_LABELS = len(all_fontlabels)
     return (np.vstack(all_data),
             all_charlabels, all_fontlabels, char_ids, font_ids)
 
@@ -87,12 +95,12 @@ class _path_to_labels(object):
         return np.array([style_ids, content_ids])
 
 
-def get_tf_images(batch_size, chars=string.ascii_letters,
+def get_tf_images(batch_size, chars=string.ascii_lowercase,
                   min_after_dequeue=100, num_epochs=None):
     """Probably the best move is still to just grab everything and then slice
     it (we aren't dealing with much data at all)."""
     all_data, all_clabels, all_slabels, cvocab, svocab = get_characters(chars)
-
+    logging.info('Got %d images', all_data.shape[0])
     # be careful not to save these
     input_images = tf.Variable(all_data, trainable=False)
     input_clabels = tf.Variable(all_clabels, trainable=False)
@@ -102,7 +110,12 @@ def get_tf_images(batch_size, chars=string.ascii_letters,
         [input_images, input_clabels, input_slabels], num_epochs=num_epochs,
         shuffle=True, capacity=32)
 
-    return tf.train.batch([image, clabel, slabel], batch_size=batch_size)
+    # get the images ready
+    float_images = tf.cast(image, tf.float32)
+    float_images = (float_images / 127.0) - 1.0
+
+    return tf.train.batch(
+        [float_images, clabel, slabel], batch_size=batch_size)
 
 
 if __name__ == '__main__':
