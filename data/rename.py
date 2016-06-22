@@ -17,6 +17,6 @@ for directory in all_dirs:
     for fname in files:
         oldpath = os.path.join(directory, fname)
         new_name = ord(fname.split('.')[0])
-        newpath = os.path.join(directory, new_name+'.png')
+        newpath = os.path.join(directory, '{}.png'.format(new_name))
         os.rename(oldpath, newpath)
                  
