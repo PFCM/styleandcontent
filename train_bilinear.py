@@ -36,6 +36,10 @@ flags = tf.app.flags
 flags.DEFINE_integer('max_epochs', 1000, 'how long to train for')
 flags.DEFINE_float('learning_rate', 0.1, 'learning rate for gradient descent')
 flags.DEFINE_integer('batch_size', 10, 'how many to do at once.')
+flags.DEFINE_float('l2_reg', 0.001, 'amount of l2 regularisation (weight '
+                   'decay)')
+flags.DEFINE_integer('early_stop', 3, 'if the validation error is worse than '
+                     'the last `early_stop` checks, then quit early.')
 
 # model params
 flags.DEFINE_integer('style_embedding_dim', 30, 'how big to make the style '
@@ -57,6 +61,7 @@ flags.DEFINE_integer('rank2', 10, 'For tensor-train, this is the second '
 flags.DEFINE_float('sparsity', 0.15, 'The fraction/number of non-zero elements'
                    ' if a sparse tensor is used. If > 0 then it is assumed to '
                    ' a count, otherwise a fraction.')
+flags.DEFINE_bool('conv', False, 'Whether to add a small conv layer on top')
 
 # admin stuff
 flags.DEFINE_string('logdir', 'logs', 'Where to save the logs of the runs')
@@ -111,12 +116,9 @@ def _get_sparse_model(style_input, content_input, summarise):
         [FLAGS.style_embedding_dim, data.IMAGE_SIZE**2,
          FLAGS.content_embedding_dim],
         FLAGS.sparsity,
-        trainable=True,
         name='sparse_model')
-    for mat in tensor:  # add summaries of the three matrices
-        tf.histogram_summary(mat.op.name + '_hist', mat)
     # and do the product
-    return mrnn.tensor_ops.sparse(
+    return mrnn.tensor_ops.bilinear_product_sparse(
         style_input, tensor, content_input, data.IMAGE_SIZE**2)
 
 
@@ -138,14 +140,26 @@ def get_bilinear_output(style_input, content_input, summarise=True):
         `[batch_size, image_size]` output tensor.
     """
     if FLAGS.decomposition == 'tt':
-        return _get_tt_model(style_input, content_input, summarise)
-    if FLAGS.decomposition == 'cp':
-        return _get_cp_model(style_input, content_input, summarise)
-    if flags.decomposition == 'sparse':
-        return _get_sparse_model(style_input, content_input, summarise)
-    if flags.decomposition == 'none':
-        return _get_full_model(style_input, content_input, summarise)
-    raise ValueError('Unkown decomposition: {}'.format(FLAGS.decomposition))
+        layer = _get_tt_model(style_input, content_input, summarise)
+    elif FLAGS.decomposition == 'cp':
+        layer = _get_cp_model(style_input, content_input, summarise)
+    elif FLAGS.decomposition == 'sparse':
+        layer = _get_sparse_model(style_input, content_input, summarise)
+    elif FLAGS.decomposition == 'none':
+        layer = _get_full_model(style_input, content_input, summarise)
+    else:
+        raise ValueError(
+            'Unkown decomposition: {}'.format(FLAGS.decomposition))
+    # maybe for kicks
+    if FLAGS.conv:
+        batch_size = style_input.get_shape().as_list()[0]
+        layer = tf.reshape(tf.nn.relu(layer), [batch_size, 8, 8, 16])
+        filters = tf.get_variable('conv_filters', [5, 5, 1, 16])
+        layer = tf.nn.conv2d_transpose(layer, filters, [batch_size, 32, 32, 1],
+                                       [1, 4, 4, 1])
+        return tf.reshape(tf.nn.elu(layer), [batch_size, 1024])
+    else:
+        return tf.nn.elu(layer)
 
 
 def embed(style_labels, content_labels, reuse=False):
@@ -168,7 +182,7 @@ def embed(style_labels, content_labels, reuse=False):
             [data.NUM_STYLE_LABELS, FLAGS.style_embedding_dim],
             dtype=tf.float32,
             trainable=True)
-        style_embedding = tf.nn.l2_normalize(style_embedding, 1)
+        # style_embedding = tf.nn.l2_normalize(style_embedding, 1)
         styles = tf.nn.embedding_lookup(style_embedding,
                                         style_labels)
 
@@ -178,10 +192,29 @@ def embed(style_labels, content_labels, reuse=False):
             [data.NUM_CONTENT_LABELS, FLAGS.content_embedding_dim],
             dtype=tf.float32,
             trainable=True)
-        content_embedding = tf.nn.l2_normalize(content_embedding, 1)
+        # content_embedding = tf.nn.l2_normalize(content_embedding, 1)
         contents = tf.nn.embedding_lookup(content_embedding,
                                           content_labels)
     return styles, contents
+
+
+def l2_regulariser(amount):
+    """Returns a function which returns half the sum of squares of the given
+    variable, times amount."""
+
+    def _l2_reg(var):
+        return amount * tf.nn.l2_loss(var)
+
+    return _l2_reg
+
+
+def l1_regulariser(amount):
+    """sum of absolute values"""
+
+    def _l1_reg(var):
+        return amount * tf.reduce_sum(tf.abs(var))
+
+    return _l1_reg
 
 
 def mse(x, y):
@@ -192,7 +225,10 @@ def mse(x, y):
 def get_train_op(loss_op, global_step):
     """Gets a training op. Looks in flags for the parameters of the
     optimizer and assumes we want to train everything in the
-    TRAINABLE_VARIABLES collection."""
+    TRAINABLE_VARIABLES collection. Also adds all of REGULARIZATION_LOSSES
+    to loss_op before minimising, so don't do that outside."""
+    loss_op = tf.add_n([loss_op] +
+                       tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
     opt = tf.train.AdamOptimizer(FLAGS.learning_rate)
     return opt.minimize(loss_op, global_step=global_step)
 
@@ -222,7 +258,8 @@ def main(_):
         tf.image_summary('valid_input', tf.reshape(
             v_image, [-1, data.IMAGE_SIZE, data.IMAGE_SIZE, 1]))
         v_sembed, v_cembed = embed(v_slabel, v_clabel, reuse=True)
-    with tf.variable_scope('model') as scope:
+    with tf.variable_scope('model',
+                           regularizer=l2_regulariser(FLAGS.l2_reg)) as scope:
         train_out = get_bilinear_output(t_sembed, t_cembed)
         tf.image_summary(
             'model_output',
@@ -283,6 +320,7 @@ def main(_):
                     '[', progressbar.AdaptiveETA(), ']'],
                 redirect_stdout=True)
             bar.start()
+            valid_losses = []
             while not coord.should_stop():
 
                 loss, _ = sess.run([loss_op, train_op])
@@ -296,12 +334,20 @@ def main(_):
                     if FLAGS.validation != 0.0:
                         vloss, = sess.run([valid_loss])
                         print('validation loss (one batch): {}'.format(vloss))
+                        if FLAGS.early_stop:
+                            if (len(valid_losses) > FLAGS.early_stop and
+                              vloss >= max(valid_losses[-FLAGS.early_stop:])):
+                                print('Not so good, stopping early.')
+                                break
+                            else:
+                                valid_losses.append(vloss)
                     saver.save(sess, FLAGS.savepath, global_step=step)
 
         except tf.errors.OutOfRangeError:
+            print('Finishing because we ran out of data.')
+        finally:
             bar.finish()
             print('Done.')
-        finally:
             coord.request_stop()
         coord.join(threads)
         sess.close()

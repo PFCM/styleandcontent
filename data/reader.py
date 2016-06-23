@@ -5,7 +5,6 @@ from __future__ import print_function
 
 import os
 import string
-import itertools
 import logging
 
 import numpy as np
@@ -79,7 +78,6 @@ def get_characters(chars=string.ascii_letters):
         all_data.append(data)
         all_charlabels += clabels
         all_fontlabels += [font_ids[font_dir]] * len(clabels)
-    NUM_STYLE_LABELS = len(all_fontlabels)
     all_charlabels = np.array(all_charlabels, dtype=np.int32)
     all_fontlabels = np.array(all_fontlabels, dtype=np.int32)
     return (np.vstack(all_data),
@@ -120,9 +118,10 @@ def _batch_data(images, clabels, slabels, batch_size, num_epochs):
 
 def get_tf_images(batch_size, chars=string.ascii_letters,
                   min_after_dequeue=100, num_epochs=None,
-                  validation=0.0):
+                  validation=0.0, write_split=True):
     """Probably the best move is still to just grab everything and then slice
-    it (we aren't dealing with much data at all)."""
+    it (we aren't dealing with much data at all). Writes labels of the
+    validation data to a given text file so that you can reuse them"""
     all_data, all_clabels, all_slabels, cvocab, svocab = get_characters(chars)
     logging.info('Got %d images', all_data.shape[0])
     # be careful not to save these
@@ -137,6 +136,13 @@ def get_tf_images(batch_size, chars=string.ascii_letters,
         logging.info('Validating with %d images', num_valid)
         valid_idces = idces[:num_valid]
         train_idces = idces[num_valid:]
+
+        if write_split:
+            with open('validation_labels.txt', 'w') as f:
+                f.write('style,content\n')
+                for s, c in zip(all_slabels[train_idces],
+                                all_clabels[train_idces]):
+                    f.write('{},{}\n'.format(s, c))
 
         train_batches = _batch_data(all_data[train_idces, :],
                                     all_clabels[train_idces],
