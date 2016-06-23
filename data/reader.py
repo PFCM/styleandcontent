@@ -53,7 +53,7 @@ def get_dirs():
 def get_vocabs(dirs=None):
     """Gets the dictionaries mapping labels -> ints"""
     if not dirs:
-        dirs = get_dirs
+        dirs = get_dirs()
     chars = [str(ord(c)) for c in string.ascii_letters]
     char_ids = {char: i for i, char in enumerate(chars)}
     font_ids = {font: i for i, font in enumerate(sorted(dirs))}
@@ -80,6 +80,8 @@ def get_characters(chars=string.ascii_letters):
         all_charlabels += clabels
         all_fontlabels += [font_ids[font_dir]] * len(clabels)
     NUM_STYLE_LABELS = len(all_fontlabels)
+    all_charlabels = np.array(all_charlabels, dtype=np.int32)
+    all_fontlabels = np.array(all_fontlabels, dtype=np.int32)
     return (np.vstack(all_data),
             all_charlabels, all_fontlabels, char_ids, font_ids)
 
@@ -98,20 +100,15 @@ class _path_to_labels(object):
         return np.array([style_ids, content_ids])
 
 
-def get_tf_images(batch_size, chars=string.ascii_letters,
-                  min_after_dequeue=100, num_epochs=None):
-    """Probably the best move is still to just grab everything and then slice
-    it (we aren't dealing with much data at all)."""
-    all_data, all_clabels, all_slabels, cvocab, svocab = get_characters(chars)
-    logging.info('Got %d images', all_data.shape[0])
-    # be careful not to save these
-    input_images = tf.Variable(all_data, trainable=False)
-    input_clabels = tf.Variable(all_clabels, trainable=False)
-    input_slabels = tf.Variable(all_slabels, trainable=False)
+def _batch_data(images, clabels, slabels, batch_size, num_epochs):
+    input_images = tf.Variable(images, trainable=False)
+    input_clabels = tf.Variable(clabels, trainable=False)
+    input_slabels = tf.Variable(slabels, trainable=False)
 
     image, clabel, slabel = tf.train.slice_input_producer(
-        [input_images, input_clabels, input_slabels], num_epochs=num_epochs,
-        shuffle=True, capacity=32)
+        [input_images, input_clabels, input_slabels],
+        num_epochs=num_epochs,
+        shuffle=True, capacity=batch_size*3)
 
     # get the images ready
     float_images = tf.cast(image, tf.float32)
@@ -119,6 +116,39 @@ def get_tf_images(batch_size, chars=string.ascii_letters,
 
     return tf.train.batch(
         [float_images, clabel, slabel], batch_size=batch_size)
+
+
+def get_tf_images(batch_size, chars=string.ascii_letters,
+                  min_after_dequeue=100, num_epochs=None,
+                  validation=0.0):
+    """Probably the best move is still to just grab everything and then slice
+    it (we aren't dealing with much data at all)."""
+    all_data, all_clabels, all_slabels, cvocab, svocab = get_characters(chars)
+    logging.info('Got %d images', all_data.shape[0])
+    # be careful not to save these
+    if validation <= 0.0:
+        return _batch_data(all_data, all_clabels, all_slabels, batch_size,
+                           num_epochs)
+    else:
+        # we will have to do it twice
+        idces = np.arange(all_data.shape[0], dtype=np.int32)
+        np.random.shuffle(idces)
+        num_valid = int(all_data.shape[0] * validation)
+        logging.info('Validating with %d images', num_valid)
+        valid_idces = idces[:num_valid]
+        train_idces = idces[num_valid:]
+
+        train_batches = _batch_data(all_data[train_idces, :],
+                                    all_clabels[train_idces],
+                                    all_slabels[train_idces],
+                                    batch_size,
+                                    num_epochs)
+        valid_batches = _batch_data(all_data[valid_idces, :],
+                                    all_clabels[valid_idces],
+                                    all_slabels[valid_idces],
+                                    batch_size,
+                                    None)
+        return train_batches, valid_batches
 
 
 if __name__ == '__main__':
