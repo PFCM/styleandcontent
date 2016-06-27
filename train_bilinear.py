@@ -38,6 +38,7 @@ flags.DEFINE_float('learning_rate', 0.1, 'learning rate for gradient descent')
 flags.DEFINE_integer('batch_size', 10, 'how many to do at once.')
 flags.DEFINE_float('l2_reg', 0.001, 'amount of l2 regularisation (weight '
                    'decay)')
+flags.DEFINE_float('l1_reg', 0.0, 'amount of l1 regularisation.')
 flags.DEFINE_integer('early_stop', 3, 'if the validation error is worse than '
                      'the last `early_stop` checks, then quit early.')
 
@@ -62,6 +63,7 @@ flags.DEFINE_float('sparsity', 0.15, 'The fraction/number of non-zero elements'
                    ' if a sparse tensor is used. If > 0 then it is assumed to '
                    ' a count, otherwise a fraction.')
 flags.DEFINE_bool('conv', False, 'Whether to add a small conv layer on top')
+flags.DEFINE_bool('use_embeddings', True, 'if false, we just use one hots.')
 
 # admin stuff
 flags.DEFINE_string('logdir', 'logs', 'Where to save the logs of the runs')
@@ -153,13 +155,14 @@ def get_bilinear_output(style_input, content_input, summarise=True):
     # maybe for kicks
     if FLAGS.conv:
         batch_size = style_input.get_shape().as_list()[0]
-        layer = tf.reshape(tf.nn.relu(layer), [batch_size, 8, 8, 16])
+        layer = tf.reshape(tf.nn.elu(layer), [batch_size, 8, 8, 16])
         filters = tf.get_variable('conv_filters', [5, 5, 1, 16])
         layer = tf.nn.conv2d_transpose(layer, filters, [batch_size, 32, 32, 1],
                                        [1, 4, 4, 1])
         return tf.reshape(tf.nn.elu(layer), [batch_size, 1024])
     else:
         return tf.nn.elu(layer)
+        # return layer
 
 
 def embed(style_labels, content_labels, reuse=False):
@@ -176,25 +179,29 @@ def embed(style_labels, content_labels, reuse=False):
             lookups.
     """
     # this is pretty straightforward
-    with tf.variable_scope('style_embedding', reuse=reuse):
-        style_embedding = tf.get_variable(
-            'style_embedding_matrix',
-            [data.NUM_STYLE_LABELS, FLAGS.style_embedding_dim],
-            dtype=tf.float32,
-            trainable=True)
-        # style_embedding = tf.nn.l2_normalize(style_embedding, 1)
-        styles = tf.nn.embedding_lookup(style_embedding,
-                                        style_labels)
+    if not FLAGS.use_embeddings:
+        styles = tf.one_hot(style_labels, FLAGS.style_embedding_dim)
+        contents = tf.one_hot(content_labels, FLAGS.content_embedding_dim)
+    else:
+        with tf.variable_scope('style_embedding', reuse=reuse):
+            style_embedding = tf.get_variable(
+                'style_embedding_matrix',
+                [data.NUM_STYLE_LABELS, FLAGS.style_embedding_dim],
+                dtype=tf.float32,
+                trainable=True)
+            # style_embedding = tf.nn.l2_normalize(style_embedding, 1)
+            styles = tf.nn.embedding_lookup(style_embedding,
+                                            style_labels)
 
-    with tf.variable_scope('content_embedding', reuse=reuse):
-        content_embedding = tf.get_variable(
-            'content_embedding_matrix',
-            [data.NUM_CONTENT_LABELS, FLAGS.content_embedding_dim],
-            dtype=tf.float32,
-            trainable=True)
-        # content_embedding = tf.nn.l2_normalize(content_embedding, 1)
-        contents = tf.nn.embedding_lookup(content_embedding,
-                                          content_labels)
+        with tf.variable_scope('content_embedding', reuse=reuse):
+            content_embedding = tf.get_variable(
+                'content_embedding_matrix',
+                [data.NUM_CONTENT_LABELS, FLAGS.content_embedding_dim],
+                dtype=tf.float32,
+                trainable=True)
+            # content_embedding = tf.nn.l2_normalize(content_embedding, 1)
+            contents = tf.nn.embedding_lookup(content_embedding,
+                                              content_labels)
     return styles, contents
 
 
@@ -215,6 +222,17 @@ def l1_regulariser(amount):
         return amount * tf.reduce_sum(tf.abs(var))
 
     return _l1_reg
+
+
+def l1l2_regulariser(l1_amount, l2_amount):
+    """sum of both"""
+    l1 = l1_regulariser(l1_amount)
+    l2 = l2_regulariser(l2_amount)
+
+    def _both_reg(var):
+        return l1(var) + l2(var)
+
+    return _both_reg
 
 
 def mse(x, y):
@@ -240,6 +258,10 @@ def main(_):
     # get the data batch tensors
     # for now, for testing, we will just be training on the whole lot
     # and see if it can learn anything
+    if not FLAGS.use_embeddings:
+        FLAGS.style_embedding_dim = data.NUM_STYLE_LABELS
+        FLAGS.content_embedding_dim = data.NUM_CONTENT_LABELS
+
     if FLAGS.validation != 0.0:
         train, valid = data.get_tf_images(FLAGS.batch_size,
                                           num_epochs=FLAGS.max_epochs,
@@ -259,7 +281,9 @@ def main(_):
             v_image, [-1, data.IMAGE_SIZE, data.IMAGE_SIZE, 1]))
         v_sembed, v_cembed = embed(v_slabel, v_clabel, reuse=True)
     with tf.variable_scope('model',
-                           regularizer=l2_regulariser(FLAGS.l2_reg)) as scope:
+                           regularizer=l1l2_regulariser(
+                               FLAGS.l1_reg,
+                               FLAGS.l2_reg)) as scope:
         train_out = get_bilinear_output(t_sembed, t_cembed)
         tf.image_summary(
             'model_output',
