@@ -155,11 +155,11 @@ def get_bilinear_output(style_input, content_input, summarise=True):
     # maybe for kicks
     if FLAGS.conv:
         batch_size = style_input.get_shape().as_list()[0]
-        layer = tf.reshape(tf.nn.elu(layer), [batch_size, 8, 8, 16])
+        layer = tf.reshape(tf.nn.relu(layer), [batch_size, 8, 8, 16])
         filters = tf.get_variable('conv_filters', [5, 5, 1, 16])
         layer = tf.nn.conv2d_transpose(layer, filters, [batch_size, 32, 32, 1],
                                        [1, 4, 4, 1])
-        return tf.reshape(tf.nn.elu(layer), [batch_size, 1024])
+        return tf.reshape(tf.identity(layer), [batch_size, 1024])
     else:
         return tf.nn.elu(layer)
         # return layer

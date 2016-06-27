@@ -59,8 +59,9 @@ def get_vocabs(dirs=None):
     return char_ids, font_ids
 
 
-def get_characters(chars=string.ascii_letters):
-    """finds everything.
+def get_characters(chars=string.ascii_letters, pairs=None):
+    """finds everything. or not. If present pairs should be a list of
+    (charlabel, fontlabel) tuples (where the labels come from get_vocabs).
 
     Returns:
         data, charlabels, fontlabels, charids, fontids
@@ -75,6 +76,12 @@ def get_characters(chars=string.ascii_letters):
         data, clabels = get_images(font_dir,
                                    char_ids,
                                    chars=chars)
+        if pairs:
+            labels = [(clabel, font_ids[font_dir]) for clabel in clabels]
+            data = [item for item, label in zip(data, labels)
+                    if label not in pairs]
+            clabels = [clabel for clabel, label in zip(clabels, labels)
+                       if label not in pairs]
         all_data.append(data)
         all_charlabels += clabels
         all_fontlabels += [font_ids[font_dir]] * len(clabels)
@@ -117,12 +124,13 @@ def _batch_data(images, clabels, slabels, batch_size, num_epochs):
 
 
 def get_tf_images(batch_size, chars=string.ascii_letters,
-                  min_after_dequeue=100, num_epochs=None,
+                  pairs=None, min_after_dequeue=100, num_epochs=None,
                   validation=0.0, write_split=True):
     """Probably the best move is still to just grab everything and then slice
     it (we aren't dealing with much data at all). Writes labels of the
     validation data to a given text file so that you can reuse them"""
-    all_data, all_clabels, all_slabels, cvocab, svocab = get_characters(chars)
+    all_data, all_clabels, all_slabels, cvocab, svocab = get_characters(chars,
+                                                                        pairs)
     logging.info('Got %d images', all_data.shape[0])
     # be careful not to save these
     if validation <= 0.0:
@@ -138,7 +146,7 @@ def get_tf_images(batch_size, chars=string.ascii_letters,
         train_idces = idces[num_valid:]
 
         if write_split:
-            with open('validation_labels.txt', 'w') as f:
+            with open('train_labels.txt', 'w') as f:
                 f.write('style,content\n')
                 for s, c in zip(all_slabels[train_idces],
                                 all_clabels[train_idces]):
